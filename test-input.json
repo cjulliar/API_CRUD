@@ -1,0 +1,18 @@
+{
+  "ProductID" : 681,
+  "Name": "Updated Product Name",
+  "ProductNumber": "UPD-12345",
+  "Color": "Blue",
+  "StandardCost": 12.50,
+  "ListPrice": 20.00,
+  "Size": "M",
+  "Weight": 1.5,
+  "ProductCategoryID": 5,
+  "ProductModelID": 3,
+  "SellStartDate": "2025-01-21T14:00:00",
+  "SellEndDate": "2025-12-31T23:59:59",
+  "DiscontinuedDate": null,
+  "ThumbnailPhotoFileName": "updated_thumbnail.jpg",
+  "rowguid": "123e4567-e89b-12d3-a456-426614174000",
+  "ModifiedDate": "2025-01-21T14:00:00"
+}

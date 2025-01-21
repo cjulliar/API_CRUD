@@ -3,19 +3,35 @@ from sqlmodel import Session, select
 from typing import List
 from ..models import Product, ProductCreate
 from ..database import get_session
-
+from ..auth import get_current_user, User
+from datetime import datetime
 
 router = APIRouter()
 
+# Fonction de validation des dates
+def validate_date_fields(product: ProductCreate):
+    """Valide les champs datetime dans le produit."""
+    for date_field in ["SellStartDate", "SellEndDate", "DiscontinuedDate", "ModifiedDate"]:
+        date_value = getattr(product, date_field, None)
+        if date_value is not None:
+            try:
+                datetime.fromisoformat(str(date_value))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Champ de date invalide : {date_field} doit être au format ISO 8601. Valeur fournie : {date_value}"
+                )
+
 # Endpoint: Lister tous les produits
-@router.get("/products", response_model=List[Product], summary="Lister tous les produits")
-def get_products(session: Session = Depends(get_session)):
+@router.get("/", response_model=List[Product], summary="Lister tous les produits")
+async def get_products(
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user)
+):
+    """Récupère tous les produits."""
     try:
-        # Récupérer tous les produits depuis la base de données
         statement = select(Product)
         products = session.exec(statement).all()
-
-        # Vérification si des produits sont trouvés
         if not products:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -28,11 +44,15 @@ def get_products(session: Session = Depends(get_session)):
             detail=f"Erreur lors de la récupération des produits : {str(e)}"
         )
 
-# Endpoint: Détails d'un produit
-@router.get("/products/{product_id}", response_model=Product, summary="Détails d'un produit")
-def get_product(product_id: int, session: Session = Depends(get_session)):
+# Endpoint: Détails d’un produit
+@router.get("/{product_id}", response_model=Product, summary="Détails d’un produit")
+async def get_product(
+    product_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user)
+):
+    """Retourne les détails d’un produit spécifique."""
     try:
-        # Récupérer un produit par ID
         product = session.get(Product, product_id)
         if not product:
             raise HTTPException(
@@ -48,12 +68,22 @@ def get_product(product_id: int, session: Session = Depends(get_session)):
 
 # Endpoint: Créer un produit
 @router.post("/products", response_model=Product, status_code=status.HTTP_201_CREATED, summary="Créer un produit")
-def create_product(product: ProductCreate, session: Session = Depends(get_session)):
+async def create_product(product: ProductCreate, session: Session = Depends(get_session)):
     try:
+        # Vérification si ProductID est fourni
+        if product.ProductID is not None:
+            existing_product = session.get(Product, product.ProductID)
+            if existing_product:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="ProductID déjà existant."
+                )
+
+        # Création du produit
         new_product = Product.from_orm(product)
         session.add(new_product)
         session.commit()
-        session.refresh(new_product)  # Recharger pour récupérer les données générées
+        session.refresh(new_product)
         return new_product
     except Exception as e:
         raise HTTPException(
@@ -61,9 +91,16 @@ def create_product(product: ProductCreate, session: Session = Depends(get_sessio
             detail=f"Erreur lors de la création du produit : {str(e)}"
         )
 
-# Endpoint: Mettre à jour un produit
-@router.put("/products/{product_id}", response_model=Product, summary="Mettre à jour un produit")
-def update_product(product_id: int, product: ProductCreate, session: Session = Depends(get_session)):
+
+# Endpoint: Modifier un produit
+@router.put("/{product_id}", response_model=Product, summary="Mettre à jour un produit")
+async def update_product(
+    product_id: int,
+    product: ProductCreate,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user)
+):
+    """Met à jour les informations d’un produit existant."""
     try:
         existing_product = session.get(Product, product_id)
         if not existing_product:
@@ -71,7 +108,6 @@ def update_product(product_id: int, product: ProductCreate, session: Session = D
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Produit non trouvé"
             )
-        # Mettre à jour les champs
         for key, value in product.dict(exclude_unset=True).items():
             setattr(existing_product, key, value)
         session.add(existing_product)
@@ -85,8 +121,13 @@ def update_product(product_id: int, product: ProductCreate, session: Session = D
         )
 
 # Endpoint: Supprimer un produit
-@router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Supprimer un produit")
-def delete_product(product_id: int, session: Session = Depends(get_session)):
+@router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Supprimer un produit")
+async def delete_product(
+    product_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user)
+):
+    """Supprime un produit spécifique."""
     try:
         product = session.get(Product, product_id)
         if not product:
@@ -100,16 +141,4 @@ def delete_product(product_id: int, session: Session = Depends(get_session)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erreur lors de la suppression du produit : {str(e)}"
-        )
-
-# Endpoint: Tester la connexion à la base de données
-@router.get("/test-db", summary="Tester la connexion à la base de données")
-def test_db_connection(session: Session = Depends(get_session)):
-    try:
-        session.execute("SELECT 1")
-        return {"message": "Connexion à la base de données réussie"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur de connexion à la base de données : {str(e)}"
         )
