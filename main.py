@@ -3,6 +3,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from app.auth import fake_users_db, verify_password, get_user
 from app.routes.products import router as products_router
 
+#uvicorn main:app --reload     pour lancer le programme
+
 app = FastAPI()
 
 # Inclure les routes pour les produits

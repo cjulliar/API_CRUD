@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from sqlmodel import Session, select
 from typing import List
-from ..models import Product, ProductCreate
+from ..models import Product, ProductCreate, ProductCategory, ProductModel
 from ..database import get_session
 from ..auth import get_current_user, User
 from datetime import datetime
@@ -22,13 +22,34 @@ def validate_date_fields(product: ProductCreate):
                     detail=f"Champ de date invalide : {date_field} doit être au format ISO 8601. Valeur fournie : {date_value}"
                 )
 
+# Fonction de validation des clés étrangères
+def validate_foreign_keys(session: Session, product: ProductCreate):
+    """Vérifie que les clés étrangères existent dans les tables référencées."""
+    # Vérifier ProductCategoryID
+    if product.ProductCategoryID:
+        category_exists = session.execute(
+            select(ProductCategory).where(ProductCategory.ProductCategoryID == product.ProductCategoryID)
+        ).scalar()
+        if not category_exists:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"ProductCategoryID {product.ProductCategoryID} n'existe pas."
+            )
+    
+    # Vérifier ProductModelID
+    if product.ProductModelID:
+        model_exists = session.execute(
+            select(ProductModel).where(ProductModel.ProductModelID == product.ProductModelID)
+        ).scalar()
+        if not model_exists:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"ProductModelID {product.ProductModelID} n'existe pas."
+            )
+
 # Endpoint: Lister tous les produits
 @router.get("/", response_model=List[Product], summary="Lister tous les produits")
-async def get_products(
-    session: Session = Depends(get_session),
-    user: User = Depends(get_current_user)
-):
-    """Récupère tous les produits."""
+def get_products(session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     try:
         statement = select(Product)
         products = session.exec(statement).all()
@@ -46,12 +67,7 @@ async def get_products(
 
 # Endpoint: Détails d’un produit
 @router.get("/{product_id}", response_model=Product, summary="Détails d’un produit")
-async def get_product(
-    product_id: int,
-    session: Session = Depends(get_session),
-    user: User = Depends(get_current_user)
-):
-    """Retourne les détails d’un produit spécifique."""
+def get_product(product_id: int, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     try:
         product = session.get(Product, product_id)
         if not product:
@@ -67,17 +83,11 @@ async def get_product(
         )
 
 # Endpoint: Créer un produit
-@router.post("/products", response_model=Product, status_code=status.HTTP_201_CREATED, summary="Créer un produit")
-async def create_product(product: ProductCreate, session: Session = Depends(get_session)):
+@router.post("/", response_model=Product, status_code=status.HTTP_201_CREATED, summary="Créer un produit")
+def create_product(product: ProductCreate, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     try:
-        # Vérification si ProductID est fourni
-        if product.ProductID is not None:
-            existing_product = session.get(Product, product.ProductID)
-            if existing_product:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="ProductID déjà existant."
-                )
+        validate_date_fields(product)
+        validate_foreign_keys(session, product)
 
         # Création du produit
         new_product = Product.from_orm(product)
@@ -91,16 +101,9 @@ async def create_product(product: ProductCreate, session: Session = Depends(get_
             detail=f"Erreur lors de la création du produit : {str(e)}"
         )
 
-
 # Endpoint: Modifier un produit
 @router.put("/{product_id}", response_model=Product, summary="Mettre à jour un produit")
-async def update_product(
-    product_id: int,
-    product: ProductCreate,
-    session: Session = Depends(get_session),
-    user: User = Depends(get_current_user)
-):
-    """Met à jour les informations d’un produit existant."""
+def update_product(product_id: int, product: ProductCreate, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     try:
         existing_product = session.get(Product, product_id)
         if not existing_product:
@@ -108,6 +111,10 @@ async def update_product(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Produit non trouvé"
             )
+
+        validate_date_fields(product)
+        validate_foreign_keys(session, product)
+
         for key, value in product.dict(exclude_unset=True).items():
             setattr(existing_product, key, value)
         session.add(existing_product)
@@ -122,12 +129,7 @@ async def update_product(
 
 # Endpoint: Supprimer un produit
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Supprimer un produit")
-async def delete_product(
-    product_id: int,
-    session: Session = Depends(get_session),
-    user: User = Depends(get_current_user)
-):
-    """Supprime un produit spécifique."""
+def delete_product(product_id: int, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     try:
         product = session.get(Product, product_id)
         if not product:
